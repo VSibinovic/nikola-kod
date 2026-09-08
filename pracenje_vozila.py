@@ -12,47 +12,38 @@ import math
 COM_PORT = "COM3"
 BAUDRATE = 115200
 
-try:
-
-    ser = serial.Serial(
-        COM_PORT,
-        BAUDRATE,
-        timeout=0.1
-    )
-
-    time.sleep(2)
-
-    print("================================")
-    print("SERIAL KOMUNIKACIJA")
-    print("Povezano na:", COM_PORT)
-    print("================================")
-
-except Exception as e:
-
-    ser = None
-
-    print("================================")
-    print("UPOZORENJE")
-    print("Pico W nije povezan.")
-    print("Python ce raditi bez slanja komandi.")
-    print("================================")
-    print(e)
+ser = None
 
 
-# ============================================================
-# KAMERA
-# ============================================================
+def povezi_serijski_port():
+    """Otvori serijsku komunikaciju sa Pico W."""
+    try:
+        veza = serial.Serial(COM_PORT, BAUDRATE, timeout=0.1)
+        time.sleep(2)
+        print("================================")
+        print("SERIAL KOMUNIKACIJA")
+        print("Povezano na:", COM_PORT)
+        print("================================")
+        return veza
+    except Exception as greska:
+        print("================================")
+        print("UPOZORENJE")
+        print("Pico W nije povezan.")
+        print("Python ce raditi bez slanja komandi.")
+        print("================================")
+        print(greska)
+        return None
 
-cap = cv2.VideoCapture(0)
 
-if not cap.isOpened():
+def otvori_kameru():
+    """Otvori podrazumevanu kameru i vrati None ako nije dostupna."""
+    kamera = cv2.VideoCapture(0)
+    if kamera.isOpened():
+        return kamera
 
     print("Kamera nije pronadjena!")
-
-    if ser is not None:
-        ser.close()
-
-    exit()
+    kamera.release()
+    return None
 
 
 # ============================================================
@@ -63,6 +54,11 @@ R = 148
 G = 32
 B = 8
 
+# ============================================================
+# DIMENZIJA MARKERA
+# ============================================================
+
+MARKER_LEG_CM = 3.0
 
 # ============================================================
 # RGB -> OPENCV HSV
@@ -99,12 +95,9 @@ upper = np.array([
 # ============================================================
 # SERIJSKA KOMANDA
 # ============================================================
-
 poslednja_komanda = None
 vreme_poslednje_komande = 0
-
 MIN_INTERVAL = 0.20
-
 
 def posalji_komandu(komanda):
 
@@ -113,34 +106,21 @@ def posalji_komandu(komanda):
 
     sada = time.time()
 
-    if (
-        komanda != poslednja_komanda
+    if (komanda != poslednja_komanda
         or
-        sada - vreme_poslednje_komande > MIN_INTERVAL
-    ):
-
+        sada - vreme_poslednje_komande > MIN_INTERVAL):
         if ser is not None:
-
             try:
-
-                ser.write(
-                    (komanda + "\n").encode()
-                )
-
+                ser.write((komanda + "\n").encode())
             except Exception:
-
                 pass
-
         print("KOMANDA:", komanda)
-
         poslednja_komanda = komanda
         vreme_poslednje_komande = sada
-
 
 # ============================================================
 # UGAO
 # ============================================================
-
 def ugao(p1, p2, p3):
 
     v1 = p1.astype(float) - p2.astype(float)
@@ -148,52 +128,36 @@ def ugao(p1, p2, p3):
 
     n1 = np.linalg.norm(v1)
     n2 = np.linalg.norm(v2)
-
     if n1 == 0 or n2 == 0:
-
         return 0
-
     cosinus = np.dot(v1, v2) / (n1 * n2)
-
     cosinus = np.clip(
         cosinus,
         -1.0,
         1.0
     )
-
-    return np.degrees(
-        np.arccos(cosinus)
+    return np.degrees(np.arccos(cosinus)
     )
 
 
 # ============================================================
 # DETEKCIJA TROUGLA
 # ============================================================
-
 def detektuj_trougao(kontura):
-
     povrsina = cv2.contourArea(kontura)
-
     if povrsina < 8:
         return None
-
     if povrsina > 5000:
         return None
-
     obim = cv2.arcLength(
         kontura,
         True
     )
-
     if obim < 8:
         return None
-
     if povrsina < 100:
-
         epsilon = 0.08 * obim
-
     else:
-
         epsilon = 0.04 * obim
 
     trougao = cv2.approxPolyDP(
@@ -203,7 +167,6 @@ def detektuj_trougao(kontura):
     )
 
     if len(trougao) != 3:
-
         return None
 
     tacke = trougao.reshape(
@@ -224,7 +187,6 @@ def detektuj_trougao(kontura):
     )
 
     if min(a, b, c) < 2:
-
         return None
 
     stranice = sorted([
@@ -237,29 +199,15 @@ def detektuj_trougao(kontura):
     kateta2 = stranice[1]
     hipotenuza = stranice[2]
 
-    greska = abs(
-        kateta1 ** 2
-        +
-        kateta2 ** 2
-        -
-        hipotenuza ** 2
-    )
+    greska = abs(kateta1 ** 2 + kateta2 ** 2 - hipotenuza ** 2)
 
-    relativna_greska = (
-        greska /
-        max(hipotenuza ** 2, 1)
-    )
+    relativna_greska = (greska /max(hipotenuza ** 2, 1))
 
     if povrsina >= 100:
-
         if relativna_greska > 0.45:
-
             return None
-
     else:
-
         if relativna_greska > 0.70:
-
             return None
 
     ugao1 = ugao(
@@ -289,34 +237,24 @@ def detektuj_trougao(kontura):
     pravi_ugao = max(uglovi)
 
     if povrsina >= 100:
-
         if pravi_ugao < 55:
             return None
-
         if pravi_ugao > 125:
             return None
-
     else:
-
         if pravi_ugao < 45:
             return None
-
         if pravi_ugao > 135:
             return None
 
     M = cv2.moments(kontura)
 
     if M["m00"] == 0:
-
         return None
 
-    cx = int(
-        M["m10"] / M["m00"]
-    )
 
-    cy = int(
-        M["m01"] / M["m00"]
-    )
+    cx = int(M["m10"] / M["m00"])
+    cy = int(M["m01"] / M["m00"])
 
     return {
         "trougao": trougao,
@@ -329,24 +267,17 @@ def detektuj_trougao(kontura):
 # ============================================================
 # DETEKCIJA KVADRATA
 # ============================================================
-
 def detektuj_kvadrat(kontura):
 
     povrsina = cv2.contourArea(kontura)
 
     if povrsina < 150:
         return None
-
     if povrsina > 15000:
         return None
-
-    obim = cv2.arcLength(
-        kontura,
-        True
-    )
+    obim = cv2.arcLength(kontura,True)
 
     if obim < 30:
-
         return None
 
     aproksimacija = cv2.approxPolyDP(
@@ -356,80 +287,49 @@ def detektuj_kvadrat(kontura):
     )
 
     if len(aproksimacija) != 4:
-
-        aproksimacija = cv2.approxPolyDP(
-            kontura,
-            0.06 * obim,
-            True
-        )
+        aproksimacija = cv2.approxPolyDP(kontura,0.06 * obim,True)
 
     if len(aproksimacija) != 4:
-
         return None
 
-    x, y, w, h = cv2.boundingRect(
-        kontura
-    )
+    x, y, w, h = cv2.boundingRect(kontura)
 
     if w == 0 or h == 0:
-
         return None
 
     odnos = w / float(h)
 
     if odnos < 0.55 or odnos > 1.80:
-
         return None
 
-    fill = (
-        povrsina /
-        float(w * h)
-    )
+
+    fill = (povrsina/float(w * h))
 
     if fill < 0.55:
-
         return None
 
-    tacke = aproksimacija.reshape(
-        4,
-        2
-    ).astype(np.float32)
+    tacke = aproksimacija.reshape(4, 2).astype(np.float32)
 
     uglovi = []
 
     for i in range(4):
-
         p1 = tacke[(i - 1) % 4]
         p2 = tacke[i]
         p3 = tacke[(i + 1) % 4]
 
-        uglovi.append(
-            ugao(
-                p1,
-                p2,
-                p3
-            )
-        )
+        uglovi.append(ugao(p1,p2,p3))
 
     for a in uglovi:
-
         if a < 55 or a > 125:
-
             return None
 
     M = cv2.moments(kontura)
 
     if M["m00"] == 0:
-
         return None
 
-    cx = int(
-        M["m10"] / M["m00"]
-    )
-
-    cy = int(
-        M["m01"] / M["m00"]
-    )
+    cx = int(M["m10"] / M["m00"])
+    cy = int(M["m01"] / M["m00"])
 
     return {
         "kvadrat": aproksimacija,
@@ -439,11 +339,7 @@ def detektuj_kvadrat(kontura):
     }
 
 
-# ============================================================
-# DIMENZIJA MARKERA
-# ============================================================
 
-MARKER_LEG_CM = 3.0
 
 
 # ============================================================
@@ -452,22 +348,10 @@ MARKER_LEG_CM = 3.0
 
 def rastojanje(p1, p2):
 
-    dx = (
-        float(p1[0])
-        -
-        float(p2[0])
-    )
+    dx = (float(p1[0])-float(p2[0]))
+    dy = (float(p1[1])-float(p2[1]))
 
-    dy = (
-        float(p1[1])
-        -
-        float(p2[1])
-    )
-
-    return math.sqrt(
-        dx * dx +
-        dy * dy
-    )
+    return math.sqrt(dx * dx +dy * dy)
 
 
 # ============================================================
@@ -513,13 +397,9 @@ def izmeri_skalu_markera(marker):
     ) / 2.0
 
     if MARKER_LEG_CM <= 0:
-
         return None
 
-    return (
-        prosecna_kateta_px /
-        MARKER_LEG_CM
-    )
+    return (prosecna_kateta_px /MARKER_LEG_CM)
 
 
 # ============================================================
@@ -1143,605 +1023,496 @@ GRANICA_LEFT_CM = 12.0
 # GLAVNA PETLJA
 # ============================================================
 
-while True:
+def main():
+    """Pokreni detekciju marker-a, navigaciju vozila, i prikaz do izlaza korisnika."""
+    global ser
 
-    ret, frame = cap.read()
+    ser = povezi_serijski_port()
+    cap = otvori_kameru()
+    if cap is None:
+        if ser is not None:
+            ser.close()
+        return
 
-    if not ret:
+    while True:
 
-        print(
-            "GRESKA: Kamera ne daje sliku."
+        ret, frame = cap.read()
+
+        if not ret:
+            print("GRESKA: Kamera ne daje sliku.")
+            break
+
+
+        # ========================================================
+        # PODRAZUMEVANO RASTOJANJE
+        # ========================================================
+        rastojanje_mali_do_cilja_cm = None
+        # ========================================================
+        # BGR -> HSV
+        # ========================================================
+        hsv = cv2.cvtColor(frame,cv2.COLOR_BGR2HSV)
+        # ========================================================
+        # HSV MASKA
+        # ========================================================
+        hsv_maska = cv2.inRange(hsv,lower,upper)
+        # ========================================================
+        # DODATNA MASKA CRVENE BOJE
+        # ========================================================
+        blue = frame[:,:,0].astype(np.int16)
+        green = frame[:,:,1].astype(np.int16)
+        red = frame[:,:,2].astype(np.int16)
+
+        crvena_maska = (
+
+            (red > 70)
+
+            &
+
+            (red > green * 1.5)
+
+            &
+
+            (red > blue * 1.5)
+
+            &
+
+            ((red - green) > 50)
+
+            &
+
+            ((red - blue) > 50)
         )
 
-        break
+        crvena_maska = (crvena_maska.astype(np.uint8)*255)
+        # ========================================================
+        # KOMBINOVANA MASKA
+        # ========================================================
+        maska = cv2.bitwise_and(hsv_maska,crvena_maska)
+        # ========================================================
+        # MORFOLOGIJA
+        # ========================================================
 
-
-    # ========================================================
-    # PODRAZUMEVANO RASTOJANJE
-    # ========================================================
-
-    rastojanje_mali_do_cilja_cm = None
-
-
-    # ========================================================
-    # BGR -> HSV
-    # ========================================================
-
-    hsv = cv2.cvtColor(
-        frame,
-        cv2.COLOR_BGR2HSV
-    )
-
-
-    # ========================================================
-    # HSV MASKA
-    # ========================================================
-
-    hsv_maska = cv2.inRange(
-        hsv,
-        lower,
-        upper
-    )
-
-
-    # ========================================================
-    # DODATNA MASKA CRVENE BOJE
-    # ========================================================
-
-    blue = frame[
-        :,
-        :,
-        0
-    ].astype(
-        np.int16
-    )
-
-    green = frame[
-        :,
-        :,
-        1
-    ].astype(
-        np.int16
-    )
-
-    red = frame[
-        :,
-        :,
-        2
-    ].astype(
-        np.int16
-    )
-
-    crvena_maska = (
-
-        (red > 70)
-
-        &
-
-        (red > green * 1.5)
-
-        &
-
-        (red > blue * 1.5)
-
-        &
-
-        ((red - green) > 50)
-
-        &
-
-        ((red - blue) > 50)
-    )
-
-    crvena_maska = (
-        crvena_maska.astype(
+        kernel_close = np.ones(
+            (5, 5),
             np.uint8
         )
-        *
-        255
-    )
 
-
-    # ========================================================
-    # KOMBINOVANA MASKA
-    # ========================================================
-
-    maska = cv2.bitwise_and(
-        hsv_maska,
-        crvena_maska
-    )
-
-
-    # ========================================================
-    # MORFOLOGIJA
-    # ========================================================
-
-    kernel_close = np.ones(
-        (5, 5),
-        np.uint8
-    )
-
-    maska = cv2.morphologyEx(
-        maska,
-        cv2.MORPH_CLOSE,
-        kernel_close
-    )
-
-    kernel_dilate = np.ones(
-        (3, 3),
-        np.uint8
-    )
-
-    maska = cv2.dilate(
-        maska,
-        kernel_dilate,
-        iterations=1
-    )
-
-
-    # ========================================================
-    # KONTURE
-    # ========================================================
-
-    konture, _ = cv2.findContours(
-        maska,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE
-    )
-
-
-    trougao_kandidati = []
-
-    kvadrat_kandidati = []
-
-
-    # ========================================================
-    # ANALIZA KONTURA
-    # ========================================================
-
-    for kontura in konture:
-
-        rezultat_trougla = (
-            detektuj_trougao(
-                kontura
-            )
+        maska = cv2.morphologyEx(
+            maska,
+            cv2.MORPH_CLOSE,
+            kernel_close
         )
 
-        if rezultat_trougla is not None:
+        kernel_dilate = np.ones(
+            (3, 3),
+            np.uint8
+        )
 
-            x, y, w, h = (
-                cv2.boundingRect(
+        maska = cv2.dilate(
+            maska,
+            kernel_dilate,
+            iterations=1
+        )
+
+
+        # ========================================================
+        # KONTURE
+        # ========================================================
+
+        konture, _ = cv2.findContours(
+            maska,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )
+
+
+        trougao_kandidati = []
+
+        kvadrat_kandidati = []
+
+
+        # ========================================================
+        # ANALIZA KONTURA
+        # ========================================================
+
+        for kontura in konture:
+
+            rezultat_trougla = (
+                detektuj_trougao(
                     kontura
                 )
             )
 
-            if x <= 1:
-                continue
+            if rezultat_trougla is not None:
 
-            if y <= 1:
-                continue
+                x, y, w, h = (
+                    cv2.boundingRect(
+                        kontura
+                    )
+                )
+                
+                if x>1 and y>1 and x+w<frame.shape[1]-1 and y+h<frame.shape[0]-1:
+                    trougao_kandidati.append(
+                        rezultat_trougla
+                    )
 
-            if (
-                x + w >=
-                frame.shape[1] - 1
-            ):
-                continue
-
-            if (
-                y + h >=
-                frame.shape[0] - 1
-            ):
-                continue
-
-            trougao_kandidati.append(
-                rezultat_trougla
-            )
-
-            continue
-
-
-        rezultat_kvadrata = (
-            detektuj_kvadrat(
-                kontura
-            )
-        )
-
-        if rezultat_kvadrata is not None:
-
-            x, y, w, h = (
-                cv2.boundingRect(
+            rezultat_kvadrata = (
+                detektuj_kvadrat(
                     kontura
                 )
             )
 
-            if x <= 1:
-                continue
+            if rezultat_kvadrata is not None:
 
-            if y <= 1:
-                continue
+                x, y, w, h = (
+                    cv2.boundingRect(
+                        kontura
+                    )
+                )
 
-            if (
-                x + w >=
-                frame.shape[1] - 1
-            ):
-                continue
+                if x>1 and y>1 and x+w<frame.shape[1]-1 and y+h<frame.shape[0]-1:
+                    kvadrat_kandidati.append(
+                        rezultat_kvadrata
+                    )
 
-            if (
-                y + h >=
-                frame.shape[0] - 1
-            ):
-                continue
 
-            kvadrat_kandidati.append(
-                rezultat_kvadrata
+        # ========================================================
+        # 4 FIKSNA TROUGLA
+        # ========================================================
+
+        trougao_kandidati.sort(
+            key=lambda x: x["povrsina"],
+            reverse=True
+        )
+
+        markeri = (
+            trougao_kandidati[:4]
+        )
+
+
+        # ========================================================
+        # CENTRI TROUGLOVA
+        # ========================================================
+
+        centri = []
+
+        for i, marker in enumerate(
+            markeri
+        ):
+
+            cx, cy = (
+                marker["centar"]
+            )
+
+            centri.append(
+                (cx, cy)
+            )
+
+            cv2.circle(
+                frame,
+                (cx, cy),
+                5,
+                (0, 0, 255),
+                -1
+            )
+
+            cv2.polylines(
+                frame,
+                [
+                    marker[
+                        "trougao"
+                    ].astype(
+                        np.int32
+                    )
+                ],
+                True,
+                (0, 255, 0),
+                2
             )
 
 
-    # ========================================================
-    # 4 FIKSNA TROUGLA
-    # ========================================================
+        # ========================================================
+        # SKALA
+        # ========================================================
 
-    trougao_kandidati.sort(
-        key=lambda x: x["povrsina"],
-        reverse=True
-    )
+        prosecna_skala = None
 
-    markeri = (
-        trougao_kandidati[:4]
-    )
+        uglovi_px = None
 
+        if len(centri) == 4:
 
-    # ========================================================
-    # CENTRI TROUGLOVA
-    # ========================================================
-
-    centri = []
-
-    for i, marker in enumerate(
-        markeri
-    ):
-
-        cx, cy = (
-            marker["centar"]
-        )
-
-        centri.append(
-            (cx, cy)
-        )
-
-        cv2.circle(
-            frame,
-            (cx, cy),
-            5,
-            (0, 0, 255),
-            -1
-        )
-
-        cv2.polylines(
-            frame,
-            [
-                marker[
-                    "trougao"
-                ].astype(
-                    np.int32
-                )
-            ],
-            True,
-            (0, 255, 0),
-            2
-        )
-
-
-    # ========================================================
-    # SKALA
-    # ========================================================
-
-    prosecna_skala = None
-
-    uglovi_px = None
-
-    if len(centri) == 4:
-
-        tacke = np.array(
-            centri,
-            dtype=np.float32
-        )
-
-        uglovi_px = (
-            uredi_uglaste_tacke(
-                tacke
-            )
-        )
-
-
-        # ====================================================
-        # POLIGON
-        # ====================================================
-
-        cv2.polylines(
-            frame,
-            [
-                uglovi_px.astype(
-                    np.int32
-                )
-            ],
-            True,
-            (0, 0, 255),
-            2
-        )
-
-
-        # ====================================================
-        # SKALA NA OSNOVU TROUGLOVA
-        # ====================================================
-
-        skale = []
-
-        for marker in markeri:
-
-            skala = (
-                izmeri_skalu_markera(
-                    marker
-                )
+            tacke = np.array(
+                centri,
+                dtype=np.float32
             )
 
-            if skala is not None:
-
-                skale.append(
-                    skala
-                )
-
-        if len(skale) > 0:
-
-            prosecna_skala = float(
-                np.mean(
-                    skale
+            uglovi_px = (
+                uredi_uglaste_tacke(
+                    tacke
                 )
             )
 
 
-        # ====================================================
-        # RASTOJANJE STRANICA
-        # ====================================================
+            # ====================================================
+            # POLIGON
+            # ====================================================
 
-        parovi = [
-            (0, 1),
-            (1, 2),
-            (2, 3),
-            (3, 0)
-        ]
+            cv2.polylines(
+                frame,
+                [
+                    uglovi_px.astype(
+                        np.int32
+                    )
+                ],
+                True,
+                (0, 0, 255),
+                2
+            )
 
-        if prosecna_skala is not None:
 
-            for i, j in parovi:
+            # ====================================================
+            # SKALA NA OSNOVU TROUGLOVA
+            # ====================================================
 
-                d_px = rastojanje(
-                    uglovi_px[i],
-                    uglovi_px[j]
+            skale = []
+
+            for marker in markeri:
+
+                skala = (
+                    izmeri_skalu_markera(
+                        marker
+                    )
                 )
 
-                d_cm = (
-                    d_px /
-                    prosecna_skala
+                if skala is not None:
+
+                    skale.append(
+                        skala
+                    )
+
+            if len(skale) > 0:
+
+                prosecna_skala = float(
+                    np.mean(
+                        skale
+                    )
                 )
 
-                sredina = (
-                    (
-                        uglovi_px[i]
-                        +
+
+            # ====================================================
+            # RASTOJANJE STRANICA
+            # ====================================================
+
+            parovi = [
+                (0, 1),
+                (1, 2),
+                (2, 3),
+                (3, 0)
+            ]
+
+            if prosecna_skala is not None:
+
+                for i, j in parovi:
+
+                    d_px = rastojanje(
+                        uglovi_px[i],
                         uglovi_px[j]
                     )
-                    /
-                    2
-                ).astype(int)
 
-                cv2.putText(
-                    frame,
-                    f"{d_cm:.1f} cm",
-                    tuple(sredina),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.45,
-                    (255, 255, 255),
-                    1
+                    d_cm = (
+                        d_px /
+                        prosecna_skala
+                    )
+
+                    sredina = (
+                        (
+                            uglovi_px[i]
+                            +
+                            uglovi_px[j]
+                        )
+                        /
+                        2
+                    ).astype(int)
+
+                    cv2.putText(
+                        frame,
+                        f"{d_cm:.1f} cm",
+                        tuple(sredina),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        (255, 255, 255),
+                        1
+                    )
+
+
+        # ========================================================
+        # IZBOR DVA KVADRATA NA VOZILU
+        # ========================================================
+
+        veliki_marker = None
+
+        mali_marker = None
+
+        if len(
+            kvadrat_kandidati
+        ) >= 2:
+
+            (
+                veliki_marker,
+                mali_marker
+            ) = (
+                izaberi_markere_vozila(
+                    kvadrat_kandidati,
+                    prosecna_skala
                 )
-
-
-    # ========================================================
-    # IZBOR DVA KVADRATA NA VOZILU
-    # ========================================================
-
-    veliki_marker = None
-
-    mali_marker = None
-
-    if len(
-        kvadrat_kandidati
-    ) >= 2:
-
-        (
-            veliki_marker,
-            mali_marker
-        ) = (
-            izaberi_markere_vozila(
-                kvadrat_kandidati,
-                prosecna_skala
             )
-        )
 
 
-    # ========================================================
-    # AKO SU OBA MARKERA PRONADJENA
-    # ========================================================
+        # ========================================================
+        # AKO SU OBA MARKERA PRONADJENA
+        # ========================================================
 
-    if (
-        veliki_marker is not None
-        and
-        mali_marker is not None
-        and
-        uglovi_px is not None
-    ):
+        if (
+            veliki_marker is not None
+            and
+            mali_marker is not None
+            and
+            uglovi_px is not None
+        ):
 
-        # ====================================================
-        # VELIKI = POZICIJA
-        # MALI = SMER / PREDNJI DEO
-        # ====================================================
+            # ====================================================
+            # VELIKI = POZICIJA
+            # MALI = SMER / PREDNJI DEO
+            # ====================================================
 
-        veliki_centar = (
-            veliki_marker[
-                "centar"
-            ]
-        )
-
-        mali_centar = (
-            mali_marker[
-                "centar"
-            ]
-        )
-
-
-        veliki_x = (
-            veliki_centar[0]
-        )
-
-        veliki_y = (
-            veliki_centar[1]
-        )
-
-
-        # ====================================================
-        # ORIJENTACIJA
-        # ====================================================
-
-        trenutni_ugao, smer = (
-            odredi_orijentaciju(
-                veliki_centar,
-                mali_centar
-            )
-        )
-
-
-        # ====================================================
-        # PRIKAZ VELIKOG KVADRATA
-        # ====================================================
-
-        cv2.polylines(
-            frame,
-            [
+            veliki_centar = (
                 veliki_marker[
-                    "kvadrat"
-                ].astype(
-                    np.int32
-                )
-            ],
-            True,
-            (255, 0, 255),
-            3
-        )
+                    "centar"
+                ]
+            )
 
-
-        # ====================================================
-        # PRIKAZ MALOG KVADRATA
-        # ====================================================
-
-        cv2.polylines(
-            frame,
-            [
+            mali_centar = (
                 mali_marker[
-                    "kvadrat"
-                ].astype(
-                    np.int32
+                    "centar"
+                ]
+            )
+
+
+            veliki_x = (
+                veliki_centar[0]
+            )
+
+            veliki_y = (
+                veliki_centar[1]
+            )
+
+
+            # ====================================================
+            # ORIJENTACIJA
+            # ====================================================
+
+            trenutni_ugao, smer = (
+                odredi_orijentaciju(
+                    veliki_centar,
+                    mali_centar
                 )
-            ],
-            True,
-            (255, 165, 0),
-            3
-        )
+            )
 
 
-        # ====================================================
-        # CENTRI
-        # ====================================================
+            # ====================================================
+            # PRIKAZ VELIKOG KVADRATA
+            # ====================================================
 
-        cv2.circle(
-            frame,
-            veliki_centar,
-            7,
-            (255, 0, 255),
-            -1
-        )
-
-        cv2.circle(
-            frame,
-            mali_centar,
-            7,
-            (255, 165, 0),
-            -1
-        )
+            cv2.polylines(
+                frame,
+                [
+                    veliki_marker[
+                        "kvadrat"
+                    ].astype(
+                        np.int32
+                    )
+                ],
+                True,
+                (255, 0, 255),
+                3
+            )
 
 
-        # ====================================================
-        # LINIJA SMERA
-        #
-        # VELIKI -> MALI
-        #
-        # OVA LINIJA PREDSTAVLJA PREDNJI SMER VOZILA
-        # ====================================================
+            # ====================================================
+            # PRIKAZ MALOG KVADRATA
+            # ====================================================
 
-        cv2.line(
-            frame,
-            veliki_centar,
-            mali_centar,
-            (255, 255, 0),
-            3
-        )
-
-
-        # ====================================================
-        # PRIKAZ ORIJENTACIJE
-        # ====================================================
-
-        cv2.putText(
-            frame,
-            f"ORIJENTACIJA: {smer}",
-            (20, 310),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.65,
-            (255, 255, 0),
-            2
-        )
-
-        cv2.putText(
-            frame,
-            f"UGAO: {trenutni_ugao:.1f} deg",
-            (20, 340),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
-            (255, 255, 255),
-            2
-        )
+            cv2.polylines(
+                frame,
+                [
+                    mali_marker[
+                        "kvadrat"
+                    ].astype(
+                        np.int32
+                    )
+                ],
+                True,
+                (255, 165, 0),
+                3
+            )
 
 
-        # ====================================================
-        # RASTOJANJE VELIKI-MALI
-        # ====================================================
+            # ====================================================
+            # CENTRI
+            # ====================================================
 
-        razmak_markera_px = rastojanje(
-            veliki_centar,
-            mali_centar
-        )
+            cv2.circle(
+                frame,
+                veliki_centar,
+                7,
+                (255, 0, 255),
+                -1
+            )
 
-        if prosecna_skala is not None:
+            cv2.circle(
+                frame,
+                mali_centar,
+                7,
+                (255, 165, 0),
+                -1
+            )
 
-            razmak_markera_cm = (
-                razmak_markera_px /
-                prosecna_skala
+
+            # ====================================================
+            # LINIJA SMERA
+            #
+            # VELIKI -> MALI
+            #
+            # OVA LINIJA PREDSTAVLJA PREDNJI SMER VOZILA
+            # ====================================================
+
+            cv2.line(
+                frame,
+                veliki_centar,
+                mali_centar,
+                (255, 255, 0),
+                3
+            )
+
+
+            # ====================================================
+            # PRIKAZ ORIJENTACIJE
+            # ====================================================
+
+            cv2.putText(
+                frame,
+                f"ORIJENTACIJA: {smer}",
+                (20, 310),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                (255, 255, 0),
+                2
             )
 
             cv2.putText(
                 frame,
-                f"MARKERI: "
-                f"{razmak_markera_cm:.1f} cm",
-                (20, 370),
+                f"UGAO: {trenutni_ugao:.1f} deg",
+                (20, 340),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.55,
                 (255, 255, 255),
@@ -1749,340 +1520,379 @@ while True:
             )
 
 
-        # ====================================================
-        # PUTANJA NIJE ZAVRSENA
-        # ====================================================
+            # ====================================================
+            # RASTOJANJE VELIKI-MALI
+            # ====================================================
 
-        if not putanja_zavrsena:
+            razmak_markera_px = rastojanje(
+                veliki_centar,
+                mali_centar
+            )
 
+            if prosecna_skala is not None:
 
-            # =================================================
-            # ODREDJIVANJE SLEDECEG CILJA
-            #
-            # VAZNO:
-            # CILJ SE SADA BIRA PREKO MALOG KVADRATA
-            # =================================================
-
-            if not okretanje:
-
-                # CILJ SE RACUNA U SVAKOM FREJMU NA OSNOVU
-                # TRENUTNOG POLOZAJA I TRENUTNE ORIJENTACIJE.
-                # Tako, ako korisnik rucno pomeri vozilo, stari
-                # cilj ne ostaje zapamcen.
-                novi_cilj = odredi_sledeci_cilj(
-                    veliki_centar,
-                    mali_centar,
-                    uglovi_px,
-                    poseceni_uglovi
-                )
-
-                ciljni_indeks = novi_cilj
-
-
-            # =================================================
-            # AKO POSTOJI CILJ
-            # =================================================
-
-            if ciljni_indeks is not None:
-
-                ciljna_tacka = (
-                    uglovi_px[
-                        ciljni_indeks
-                    ]
-                )
-
-                naziv_cilja = (
-                    naziv_ugla(
-                        ciljni_indeks
-                    )
-                )
-
-
-                # =================================================
-                # RASTOJANJE:
-                #
-                # MALI KVADRAT -> CILJNI TROUGAO
-                # =================================================
-
-                rastojanje_mali_do_cilja_px = (
-                    rastojanje(
-                        mali_centar,
-                        ciljna_tacka
-                    )
-                )
-
-
-                # =================================================
-                # PIXEL -> CM
-                # =================================================
-
-                if (
+                razmak_markera_cm = (
+                    razmak_markera_px /
                     prosecna_skala
-                    is not None
-                ):
+                )
 
-                    rastojanje_mali_do_cilja_cm = (
-                        rastojanje_mali_do_cilja_px
-                        /
-                        prosecna_skala
-                    )
+                cv2.putText(
+                    frame,
+                    f"MARKERI: "
+                    f"{razmak_markera_cm:.1f} cm",
+                    (20, 370),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55,
+                    (255, 255, 255),
+                    2
+                )
 
 
-                # =================================================
-                # PRIKAZ RASTOJANJA
-                # =================================================
+            # ====================================================
+            # PUTANJA NIJE ZAVRSENA
+            # ====================================================
 
-                if (
-                    rastojanje_mali_do_cilja_cm
-                    is not None
-                ):
-
-                    cv2.putText(
-                        frame,
-                        f"MALI -> CILJ: "
-                        f"{rastojanje_mali_do_cilja_cm:.1f} cm",
-                        (20, 400),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.55,
-                        (0, 255, 255),
-                        2
-                    )
+            if not putanja_zavrsena:
 
 
                 # =================================================
-                # AKO SE NE OKRECE
+                # ODREDJIVANJE SLEDECEG CILJA
+                #
+                # VAZNO:
+                # CILJ SE SADA BIRA PREKO MALOG KVADRATA
                 # =================================================
 
                 if not okretanje:
 
+                    # CILJ SE RACUNA U SVAKOM FREJMU NA OSNOVU
+                    # TRENUTNOG POLOZAJA I TRENUTNE ORIJENTACIJE.
+                    # Tako, ako korisnik rucno pomeri vozilo, stari
+                    # cilj ne ostaje zapamcen.
+                    novi_cilj = odredi_sledeci_cilj(
+                        veliki_centar,
+                        mali_centar,
+                        uglovi_px,
+                        poseceni_uglovi
+                    )
 
-                    # =============================================
-                    # MALI KVADRAT JE NA 12 CM ILI BLIZE
-                    # =============================================
+                    ciljni_indeks = novi_cilj
+
+
+                # =================================================
+                # AKO POSTOJI CILJ
+                # =================================================
+
+                if ciljni_indeks is not None:
+
+                    ciljna_tacka = (
+                        uglovi_px[
+                            ciljni_indeks
+                        ]
+                    )
+
+                    naziv_cilja = (
+                        naziv_ugla(
+                            ciljni_indeks
+                        )
+                    )
+
+
+                    # =================================================
+                    # RASTOJANJE:
+                    #
+                    # MALI KVADRAT -> CILJNI TROUGAO
+                    # =================================================
+
+                    rastojanje_mali_do_cilja_px = (
+                        rastojanje(
+                            mali_centar,
+                            ciljna_tacka
+                        )
+                    )
+
+
+                    # =================================================
+                    # PIXEL -> CM
+                    # =================================================
+
+                    if (
+                        prosecna_skala
+                        is not None
+                    ):
+
+                        rastojanje_mali_do_cilja_cm = (
+                            rastojanje_mali_do_cilja_px
+                            /
+                            prosecna_skala
+                        )
+
+
+                    # =================================================
+                    # PRIKAZ RASTOJANJA
+                    # =================================================
 
                     if (
                         rastojanje_mali_do_cilja_cm
                         is not None
-                        and
-                        rastojanje_mali_do_cilja_cm
-                        <= GRANICA_LEFT_CM
                     ):
 
-                        # -----------------------------------------
-                        # STOP
-                        # -----------------------------------------
-
-                        posalji_komandu(
-                            "S"
+                        cv2.putText(
+                            frame,
+                            f"MALI -> CILJ: "
+                            f"{rastojanje_mali_do_cilja_cm:.1f} cm",
+                            (20, 400),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.55,
+                            (0, 255, 255),
+                            2
                         )
 
 
-                        # -----------------------------------------
-                        # CILJ POSEĆEN
-                        # -----------------------------------------
+                    # =================================================
+                    # AKO SE NE OKRECE
+                    # =================================================
 
-                        poseceni_uglovi.add(
-                            ciljni_indeks
-                        )
+                    if not okretanje:
 
 
-                        print()
-                        print(
-                            "================================"
-                        )
-                        print(
-                            "STIGAO DO:",
-                            naziv_cilja
-                        )
-                        print(
-                            "MALI KVADRAT -> CILJ:",
-                            f"{rastojanje_mali_do_cilja_cm:.1f} cm"
-                        )
-                        print(
-                            "POSECENO:",
-                            len(
-                                poseceni_uglovi
-                            ),
-                            "/ 4"
-                        )
-                        print(
-                            "================================"
-                        )
-
-
-                        # =========================================
-                        # SVI CILJEVI POSEĆENI
-                        # =========================================
+                        # =============================================
+                        # MALI KVADRAT JE NA 12 CM ILI BLIZE
+                        # =============================================
 
                         if (
-                            len(
-                                poseceni_uglovi
-                            )
-                            >=
-                            4
+                            rastojanje_mali_do_cilja_cm
+                            is not None
+                            and
+                            rastojanje_mali_do_cilja_cm
+                            <= GRANICA_LEFT_CM
                         ):
 
-                            putanja_zavrsena = True
-
-                            ciljni_indeks = None
+                            # -----------------------------------------
+                            # STOP
+                            # -----------------------------------------
 
                             posalji_komandu(
                                 "S"
                             )
+
+
+                            # -----------------------------------------
+                            # CILJ POSEĆEN
+                            # -----------------------------------------
+
+                            poseceni_uglovi.add(
+                                ciljni_indeks
+                            )
+
 
                             print()
                             print(
                                 "================================"
                             )
                             print(
-                                "PUTANJA ZAVRSENA"
+                                "STIGAO DO:",
+                                naziv_cilja
                             )
                             print(
-                                "SVI UGLOVI SU POSEĆENI"
+                                "MALI KVADRAT -> CILJ:",
+                                f"{rastojanje_mali_do_cilja_cm:.1f} cm"
                             )
                             print(
-                                "VOZILO STOP"
+                                "POSECENO:",
+                                len(
+                                    poseceni_uglovi
+                                ),
+                                "/ 4"
                             )
                             print(
                                 "================================"
                             )
 
 
-                        # =========================================
-                        # IMA JOS CILJEVA
-                        # =========================================
+                            # =========================================
+                            # SVI CILJEVI POSEĆENI
+                            # =========================================
+
+                            if (
+                                len(
+                                    poseceni_uglovi
+                                )
+                                >=
+                                4
+                            ):
+
+                                putanja_zavrsena = True
+
+                                ciljni_indeks = None
+
+                                posalji_komandu(
+                                    "S"
+                                )
+
+                                print()
+                                print(
+                                    "================================"
+                                )
+                                print(
+                                    "PUTANJA ZAVRSENA"
+                                )
+                                print(
+                                    "SVI UGLOVI SU POSEĆENI"
+                                )
+                                print(
+                                    "VOZILO STOP"
+                                )
+                                print(
+                                    "================================"
+                                )
+
+
+                            # =========================================
+                            # IMA JOS CILJEVA
+                            # =========================================
+
+                            else:
+
+                                # -------------------------------------
+                                # OKRETANJE ULEVO 90°
+                                # -------------------------------------
+
+                                ciljni_ugao = (
+                                    normalizuj_ugao(
+                                        trenutni_ugao +
+                                        90
+                                    )
+                                )
+
+                                okretanje = True
+
+                                vreme_pocetka_okretanja = (
+                                    time.time()
+                                )
+
+                                print(
+                                    "KOMANDA: LEFT"
+                                )
+
+                                print(
+                                    "OKRETANJE ULEVO"
+                                )
+
+                                print(
+                                    f"TRENUTNI UGAO: "
+                                    f"{trenutni_ugao:.1f}"
+                                )
+
+                                print(
+                                    f"CILJNI UGAO: "
+                                    f"{ciljni_ugao:.1f}"
+                                )
+
+                                posalji_komandu(
+                                    "L"
+                                )
+
+
+                        # =============================================
+                        # NIJE BLIZU CILJA
+                        # =============================================
 
                         else:
 
-                            # -------------------------------------
-                            # OKRETANJE ULEVO 90°
-                            # -------------------------------------
-
-                            ciljni_ugao = (
-                                normalizuj_ugao(
-                                    trenutni_ugao +
-                                    90
-                                )
-                            )
-
-                            okretanje = True
-
-                            vreme_pocetka_okretanja = (
-                                time.time()
-                            )
-
-                            print(
-                                "KOMANDA: LEFT"
-                            )
-
-                            print(
-                                "OKRETANJE ULEVO"
-                            )
-
-                            print(
-                                f"TRENUTNI UGAO: "
-                                f"{trenutni_ugao:.1f}"
-                            )
-
-                            print(
-                                f"CILJNI UGAO: "
-                                f"{ciljni_ugao:.1f}"
-                            )
-
                             posalji_komandu(
-                                "L"
+                                "F"
                             )
 
 
-                    # =============================================
-                    # NIJE BLIZU CILJA
-                    # =============================================
+                    # =================================================
+                    # OKRETANJE
+                    # =================================================
 
                     else:
 
                         posalji_komandu(
-                            "F"
+                            "L"
+                        )
+
+                        proteklo_vreme = (
+                            time.time()
+                            -
+                            vreme_pocetka_okretanja
+                        )
+
+                        greska_ugla = (
+                            razlika_uglova(
+                                trenutni_ugao,
+                                ciljni_ugao
+                            )
                         )
 
 
+                        # =============================================
+                        # KAMERA POTVRDJUJE OKRETANJE
+                        # =============================================
+
+                        if (
+                            proteklo_vreme
+                            >=
+                            MIN_VREME_OKRETANJA
+                            and
+                            greska_ugla
+                            <=
+                            TOLERANCIJA_UGLA
+                        ):
+
+                            print()
+                            print(
+                                "================================"
+                            )
+                            print(
+                                "OKRETANJE ZAVRSENO"
+                            )
+                            print(
+                                "NOVA ORIJENTACIJA:",
+                                smer
+                            )
+                            print(
+                                f"NOVI UGAO: "
+                                f"{trenutni_ugao:.1f}"
+                            )
+                            print(
+                                "================================"
+                            )
+
+                            okretanje = False
+
+                            ciljni_ugao = None
+
+                            # -----------------------------------------
+                            # STARI CILJ SE BRISE
+                            #
+                            # NOVI CILJ CE SE TRAZITI PREKO
+                            # MALOG KVADRATA I NOVOG SMERA
+                            # -----------------------------------------
+
+                            ciljni_indeks = None
+
+                            posalji_komandu(
+                                "F"
+                            )
+
+
                 # =================================================
-                # OKRETANJE
+                # NEMA CILJA
                 # =================================================
 
                 else:
 
                     posalji_komandu(
-                        "L"
-                    )
-
-                    proteklo_vreme = (
-                        time.time()
-                        -
-                        vreme_pocetka_okretanja
-                    )
-
-                    greska_ugla = (
-                        razlika_uglova(
-                            trenutni_ugao,
-                            ciljni_ugao
-                        )
+                        "S"
                     )
 
 
-                    # =============================================
-                    # KAMERA POTVRDJUJE OKRETANJE
-                    # =============================================
-
-                    if (
-                        proteklo_vreme
-                        >=
-                        MIN_VREME_OKRETANJA
-                        and
-                        greska_ugla
-                        <=
-                        TOLERANCIJA_UGLA
-                    ):
-
-                        print()
-                        print(
-                            "================================"
-                        )
-                        print(
-                            "OKRETANJE ZAVRSENO"
-                        )
-                        print(
-                            "NOVA ORIJENTACIJA:",
-                            smer
-                        )
-                        print(
-                            f"NOVI UGAO: "
-                            f"{trenutni_ugao:.1f}"
-                        )
-                        print(
-                            "================================"
-                        )
-
-                        okretanje = False
-
-                        ciljni_ugao = None
-
-                        # -----------------------------------------
-                        # STARI CILJ SE BRISE
-                        #
-                        # NOVI CILJ CE SE TRAZITI PREKO
-                        # MALOG KVADRATA I NOVOG SMERA
-                        # -----------------------------------------
-
-                        ciljni_indeks = None
-
-                        posalji_komandu(
-                            "F"
-                        )
-
-
-            # =================================================
-            # NEMA CILJA
-            # =================================================
+            # ====================================================
+            # PUTANJA ZAVRSENA
+            # ====================================================
 
             else:
 
@@ -2091,107 +1901,69 @@ while True:
                 )
 
 
-        # ====================================================
-        # PUTANJA ZAVRSENA
-        # ====================================================
+            # ====================================================
+            # PRIKAZ CILJA
+            # ====================================================
 
-        else:
+            if ciljni_indeks is not None:
 
-            posalji_komandu(
-                "S"
-            )
-
-
-        # ====================================================
-        # PRIKAZ CILJA
-        # ====================================================
-
-        if ciljni_indeks is not None:
-
-            ciljna_tacka_prikaz = (
-                uglovi_px[
-                    ciljni_indeks
-                ]
-            )
-
-            naziv_cilja_prikaz = (
-                naziv_ugla(
-                    ciljni_indeks
+                ciljna_tacka_prikaz = (
+                    uglovi_px[
+                        ciljni_indeks
+                    ]
                 )
-            )
 
-
-            # =================================================
-            # KRUG OKO CILJA
-            # =================================================
-
-            cv2.circle(
-                frame,
-                (
-                    int(
-                        ciljna_tacka_prikaz[0]
-                    ),
-                    int(
-                        ciljna_tacka_prikaz[1]
+                naziv_cilja_prikaz = (
+                    naziv_ugla(
+                        ciljni_indeks
                     )
-                ),
-                12,
-                (0, 255, 255),
-                2
-            )
+                )
 
 
-            # =================================================
-            # LINIJA OD MALOG KVADRATA DO CILJA
-            # =================================================
+                # =================================================
+                # KRUG OKO CILJA
+                # =================================================
 
-            cv2.line(
-                frame,
-                mali_centar,
-                (
-                    int(
-                        ciljna_tacka_prikaz[0]
-                    ),
-                    int(
-                        ciljna_tacka_prikaz[1]
-                    )
-                ),
-                (0, 255, 255),
-                2
-            )
-
-
-            cv2.putText(
-                frame,
-                f"CILJ: "
-                f"{naziv_cilja_prikaz}",
-                (20, 470),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.60,
-                (0, 255, 255),
-                2
-            )
-
-
-        else:
-
-            if putanja_zavrsena:
-
-                cv2.putText(
+                cv2.circle(
                     frame,
-                    "CILJ: ZAVRSENO",
-                    (20, 470),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.60,
-                    (0, 255, 0),
+                    (
+                        int(
+                            ciljna_tacka_prikaz[0]
+                        ),
+                        int(
+                            ciljna_tacka_prikaz[1]
+                        )
+                    ),
+                    12,
+                    (0, 255, 255),
                     2
                 )
 
-            else:
+
+                # =================================================
+                # LINIJA OD MALOG KVADRATA DO CILJA
+                # =================================================
+
+                cv2.line(
+                    frame,
+                    mali_centar,
+                    (
+                        int(
+                            ciljna_tacka_prikaz[0]
+                        ),
+                        int(
+                            ciljna_tacka_prikaz[1]
+                        )
+                    ),
+                    (0, 255, 255),
+                    2
+                )
+
 
                 cv2.putText(
                     frame,
-                    "CILJ: ODREDJIVANJE",
+                    f"CILJ: "
+                    f"{naziv_cilja_prikaz}",
                     (20, 470),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.60,
@@ -2200,39 +1972,48 @@ while True:
                 )
 
 
-        # ====================================================
-        # PRIKAZ KOMANDE
-        # ====================================================
+            else:
 
-        if putanja_zavrsena:
+                if putanja_zavrsena:
 
-            komanda_prikaz = "STOP"
+                    cv2.putText(
+                        frame,
+                        "CILJ: ZAVRSENO",
+                        (20, 470),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.60,
+                        (0, 255, 0),
+                        2
+                    )
 
-            boja_komande = (
-                0,
-                0,
-                255
-            )
+                else:
 
-        elif okretanje:
+                    cv2.putText(
+                        frame,
+                        "CILJ: ODREDJIVANJE",
+                        (20, 470),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.60,
+                        (0, 255, 255),
+                        2
+                    )
 
-            komanda_prikaz = "LEFT"
 
-            boja_komande = (
-                0,
-                255,
-                255
-            )
+            # ====================================================
+            # PRIKAZ KOMANDE
+            # ====================================================
 
-        else:
+            if putanja_zavrsena:
 
-            if (
-                rastojanje_mali_do_cilja_cm
-                is not None
-                and
-                rastojanje_mali_do_cilja_cm
-                <= GRANICA_LEFT_CM
-            ):
+                komanda_prikaz = "STOP"
+
+                boja_komande = (
+                    0,
+                    0,
+                    255
+                )
+
+            elif okretanje:
 
                 komanda_prikaz = "LEFT"
 
@@ -2244,258 +2025,282 @@ while True:
 
             else:
 
-                komanda_prikaz = "FRONT"
+                if (
+                    rastojanje_mali_do_cilja_cm
+                    is not None
+                    and
+                    rastojanje_mali_do_cilja_cm
+                    <= GRANICA_LEFT_CM
+                ):
 
-                boja_komande = (
-                    0,
-                    255,
-                    0
-                )
+                    komanda_prikaz = "LEFT"
 
+                    boja_komande = (
+                        0,
+                        255,
+                        255
+                    )
 
-        cv2.putText(
-            frame,
-            f"KOMANDA: "
-            f"{komanda_prikaz}",
-            (20, 430),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.65,
-            boja_komande,
-            2
-        )
+                else:
 
+                    komanda_prikaz = "FRONT"
 
-        # ====================================================
-        # POSEĆENO
-        # ====================================================
-
-        cv2.putText(
-            frame,
-            f"POSECENO: "
-            f"{len(poseceni_uglovi)}/4",
-            (20, 500),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.60,
-            (255, 255, 255),
-            2
-        )
-
-
-        # ====================================================
-        # STANJE
-        # ====================================================
-
-        if putanja_zavrsena:
-
-            stanje = (
-                "STANJE: ZAVRSENO - STOP"
-            )
-
-            stanje_boja = (
-                0,
-                255,
-                0
-            )
-
-        elif okretanje:
-
-            stanje = (
-                "STANJE: OKRETANJE - LEFT"
-            )
-
-            stanje_boja = (
-                0,
-                255,
-                255
-            )
-
-        else:
-
-            stanje = (
-                "STANJE: VOZNJA - FRONT"
-            )
-
-            stanje_boja = (
-                0,
-                255,
-                255
-            )
-
-
-        cv2.putText(
-            frame,
-            stanje,
-            (20, 530),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.65,
-            stanje_boja,
-            2
-        )
-
-
-        # ====================================================
-        # POZICIJA VOZILA
-        #
-        # POZICIJA SE I DALJE RACUNA PREKO VELIKOG KVADRATA
-        # ====================================================
-
-        if prosecna_skala is not None:
-
-            vozilo_x_cm = (
-                veliki_x -
-                uglovi_px[3][0]
-            ) / prosecna_skala
-
-            vozilo_y_cm = (
-                veliki_y -
-                uglovi_px[3][1]
-            ) / prosecna_skala
+                    boja_komande = (
+                        0,
+                        255,
+                        0
+                    )
 
 
             cv2.putText(
                 frame,
-                f"POZICIJA: "
-                f"X={vozilo_x_cm:.1f} cm "
-                f"Y={vozilo_y_cm:.1f} cm",
-                (20, 560),
+                f"KOMANDA: "
+                f"{komanda_prikaz}",
+                (20, 430),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.52,
+                0.65,
+                boja_komande,
+                2
+            )
+
+
+            # ====================================================
+            # POSEĆENO
+            # ====================================================
+
+            cv2.putText(
+                frame,
+                f"POSECENO: "
+                f"{len(poseceni_uglovi)}/4",
+                (20, 500),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.60,
                 (255, 255, 255),
                 2
             )
 
 
-        # ====================================================
-        # SKALA
-        # ====================================================
+            # ====================================================
+            # STANJE
+            # ====================================================
 
-        if prosecna_skala is not None:
+            if putanja_zavrsena:
+
+                stanje = (
+                    "STANJE: ZAVRSENO - STOP"
+                )
+
+                stanje_boja = (
+                    0,
+                    255,
+                    0
+                )
+
+            elif okretanje:
+
+                stanje = (
+                    "STANJE: OKRETANJE - LEFT"
+                )
+
+                stanje_boja = (
+                    0,
+                    255,
+                    255
+                )
+
+            else:
+
+                stanje = (
+                    "STANJE: VOZNJA - FRONT"
+                )
+
+                stanje_boja = (
+                    0,
+                    255,
+                    255
+                )
+
 
             cv2.putText(
                 frame,
-                f"MARKER = 3x3 cm | "
-                f"SKALA = "
-                f"{prosecna_skala:.1f} px/cm",
-                (20, 590),
+                stanje,
+                (20, 530),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.50,
-                (0, 255, 255),
+                0.65,
+                stanje_boja,
                 2
             )
 
 
-    # ========================================================
-    # AKO MARKERI VOZILA NISU PRONADJENI
-    # ========================================================
+            # ====================================================
+            # POZICIJA VOZILA
+            #
+            # POZICIJA SE I DALJE RACUNA PREKO VELIKOG KVADRATA
+            # ====================================================
 
-    else:
+            if prosecna_skala is not None:
 
-        posalji_komandu(
-            "S"
+                vozilo_x_cm = (
+                    veliki_x -
+                    uglovi_px[3][0]
+                ) / prosecna_skala
+
+                vozilo_y_cm = (
+                    veliki_y -
+                    uglovi_px[3][1]
+                ) / prosecna_skala
+
+
+                cv2.putText(
+                    frame,
+                    f"POZICIJA: "
+                    f"X={vozilo_x_cm:.1f} cm "
+                    f"Y={vozilo_y_cm:.1f} cm",
+                    (20, 560),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.52,
+                    (255, 255, 255),
+                    2
+                )
+
+
+            # ====================================================
+            # SKALA
+            # ====================================================
+
+            if prosecna_skala is not None:
+
+                cv2.putText(
+                    frame,
+                    f"MARKER = 3x3 cm | "
+                    f"SKALA = "
+                    f"{prosecna_skala:.1f} px/cm",
+                    (20, 590),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.50,
+                    (0, 255, 255),
+                    2
+                )
+
+
+        # ========================================================
+        # AKO MARKERI VOZILA NISU PRONADJENI
+        # ========================================================
+
+        else:
+
+            posalji_komandu(
+                "S"
+            )
+
+            cv2.putText(
+                frame,
+                "VOZILO: OBA MARKERA NISU PRONADJENA",
+                (20, 70),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.60,
+                (0, 0, 255),
+                2
+            )
+
+
+        # ========================================================
+        # STATUS FIKSNIH TROUGLOVA
+        # ========================================================
+
+        broj_trouglova = len(
+            markeri
         )
+
+        if broj_trouglova == 4:
+
+            tekst = (
+                "4 FIKSNA TROUGLA PRONADJENA"
+            )
+
+            boja = (
+                0,
+                255,
+                0
+            )
+
+        else:
+
+            tekst = (
+                f"TROUGLOVI: "
+                f"{broj_trouglova}/4"
+            )
+
+            boja = (
+                0,
+                0,
+                255
+            )
+
 
         cv2.putText(
             frame,
-            "VOZILO: OBA MARKERA NISU PRONADJENA",
-            (20, 70),
+            tekst,
+            (20, 35),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.60,
-            (0, 0, 255),
+            0.65,
+            boja,
             2
         )
 
 
-    # ========================================================
-    # STATUS FIKSNIH TROUGLOVA
-    # ========================================================
+        # ========================================================
+        # PRIKAZ
+        # ========================================================
 
-    broj_trouglova = len(
-        markeri
+        cv2.imshow(
+            "Detekcija markera",
+            frame
+        )
+
+        cv2.imshow(
+            "HSV MASKA",
+            maska
+        )
+
+
+        # ========================================================
+        # ESC
+        # ========================================================
+
+        if (
+            cv2.waitKey(1)
+            &
+            0xFF
+            ==
+            27
+        ):
+
+            posalji_komandu(
+                "S"
+            )
+
+            break
+
+
+    # ============================================================
+    # KRAJ PROGRAMA
+    # ============================================================
+
+    posalji_komandu(
+        "S"
     )
 
-    if broj_trouglova == 4:
-
-        tekst = (
-            "4 FIKSNA TROUGLA PRONADJENA"
-        )
-
-        boja = (
-            0,
-            255,
-            0
-        )
-
-    else:
-
-        tekst = (
-            f"TROUGLOVI: "
-            f"{broj_trouglova}/4"
-        )
-
-        boja = (
-            0,
-            0,
-            255
-        )
+    zatvori_resurse(cap)
 
 
-    cv2.putText(
-        frame,
-        tekst,
-        (20, 35),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.65,
-        boja,
-        2
-    )
+def zatvori_resurse(kamera):
+    """Zaustavi vozilo i oslobodi hardverske resurse nakon zavrsetka glavne petlje."""
+    if ser is not None:
+        ser.close()
+    kamera.release()
+    cv2.destroyAllWindows()
 
 
-    # ========================================================
-    # PRIKAZ
-    # ========================================================
-
-    cv2.imshow(
-        "Detekcija markera",
-        frame
-    )
-
-    cv2.imshow(
-        "HSV MASKA",
-        maska
-    )
-
-
-    # ========================================================
-    # ESC
-    # ========================================================
-
-    if (
-        cv2.waitKey(1)
-        &
-        0xFF
-        ==
-        27
-    ):
-
-        posalji_komandu(
-            "S"
-        )
-
-        break
-
-
-# ============================================================
-# KRAJ PROGRAMA
-# ============================================================
-
-posalji_komandu(
-    "S"
-)
-
-if ser is not None:
-
-    ser.close()
-
-cap.release()
-
-cv2.destroyAllWindows()
+if __name__ == "__main__":
+    main()
